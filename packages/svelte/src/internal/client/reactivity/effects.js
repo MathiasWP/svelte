@@ -1,4 +1,4 @@
-/** @import { Blocker, ComponentContext, ComponentContextLegacy, Derived, Effect, EffectNodes, TemplateNode, TransitionManager } from '#client' */
+/** @import { Blocker, ComponentContext, ComponentContextLegacy, Derived, Effect, TemplateNode, TransitionManager } from '#client' */
 import {
 	is_dirty,
 	active_effect,
@@ -570,37 +570,6 @@ export function destroy_effect(effect, remove_dom = true) {
 }
 
 /**
- * Returns the DOM boundary of an effect. An effect whose only content is a block — for
- * example an `{#each}` item or `{#if}` branch whose sole child is a dynamic component —
- * has no `nodes` of its own, because the DOM belongs to the block's branch. Derive the
- * boundary from its children in that case.
- * @param {Effect} effect
- * @returns {EffectNodes | null}
- */
-export function get_effect_nodes(effect) {
-	if (effect.nodes !== null) return effect.nodes;
-
-	/** @type {EffectNodes | null} */
-	var first = null;
-
-	/** @type {EffectNodes | null} */
-	var last = null;
-
-	for (var child = effect.first; child !== null; child = child.next) {
-		var nodes = get_effect_nodes(child);
-		if (nodes === null) continue;
-
-		first ??= nodes;
-		last = nodes;
-	}
-
-	if (first === null) return null;
-	if (first === last) return first;
-
-	return { start: first.start, end: /** @type {EffectNodes} */ (last).end, a: null, t: null };
-}
-
-/**
  *
  * @param {TemplateNode | null} node
  * @param {TemplateNode} end
@@ -773,12 +742,11 @@ export function aborted(effect = /** @type {Effect} */ (active_effect)) {
  * @param {DocumentFragment} fragment
  */
 export function move_effect(effect, fragment) {
-	var nodes = get_effect_nodes(effect);
-	if (nodes === null) return;
+	if (!effect.nodes) return;
 
 	/** @type {TemplateNode | null} */
-	var node = nodes.start;
-	var end = nodes.end;
+	var node = effect.nodes.start;
+	var end = effect.nodes.end;
 
 	while (node !== null) {
 		/** @type {TemplateNode | null} */

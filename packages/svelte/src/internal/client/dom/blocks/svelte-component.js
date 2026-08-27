@@ -11,7 +11,6 @@ import {
 	skip_nodes
 } from '../hydration.js';
 import { active_effect } from '../../runtime.js';
-import { assign_nodes } from '../template.js';
 import { BranchManager } from './branches.js';
 import { HYDRATION_START, HYDRATION_START_ELSE } from '../../../../constants.js';
 
@@ -32,6 +31,13 @@ export function component(node, get_component, render_fn) {
 		hydrate_next();
 	}
 
+	// When this block is the sole content of its parent, the parent owns no nodes of its own —
+	// the DOM belongs to our branch. Hand the boundary over so that consumers such as `{#each}`
+	// reconciliation can find it without having to walk the effect tree.
+	var owner = /** @type {Effect} */ (active_effect);
+	var standalone = owner.nodes === null;
+	var hydrated_boundary = false;
+
 	var branches = new BranchManager(node);
 
 	block(() => {
@@ -51,22 +57,41 @@ export function component(node, get_component, render_fn) {
 				branches.anchor = anchor;
 
 				set_hydrating(false);
-				branches.ensure(component, component && ((target) => render_fn(target, component)));
+				branches.ensure(component, component && ((target) => render(target, component)));
 				set_hydrating(true);
 
 				return;
 			}
 		}
 
-		branches.ensure(component, component && ((target) => render_fn(target, component)));
+		branches.ensure(component, component && ((target) => render(target, component)));
 	}, EFFECT_TRANSPARENT);
 
-	// If no anchor comment was created for this block — i.e. it is the sole child of its
-	// parent and renders straight into the parent's anchor — then nothing else will claim
-	// the DOM boundary or step over the closing hydration marker, so do both here.
-	// Otherwise the enclosing `$.append` does it.
-	if (hydrating && /** @type {Effect} */ (active_effect).nodes === null) {
-		assign_nodes(/** @type {TemplateNode} */ (hydration_start_node), hydrate_node);
+	// Nothing else will step over the closing hydration marker, so do it here — and claim the
+	// boundary, which spans the markers this block emitted. Otherwise `$.append` does both.
+	if (hydrating && standalone) {
+		owner.nodes = {
+			start: /** @type {TemplateNode} */ (hydration_start_node),
+			end: hydrate_node,
+			a: null,
+			t: null
+		};
+
+		hydrated_boundary = true;
 		hydrate_next();
+	}
+
+	/**
+	 * @param {TemplateNode} target
+	 * @param {C} component
+	 */
+	function render(target, component) {
+		render_fn(target, component);
+
+		// the branch is replaced whenever the component changes, so the boundary has to be
+		// handed over again — unless hydration already claimed the span of its markers
+		if (standalone && !hydrating && !hydrated_boundary) {
+			owner.nodes = /** @type {Effect} */ (active_effect).nodes;
+		}
 	}
 }
